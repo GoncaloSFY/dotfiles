@@ -1,3 +1,8 @@
+vim.api.nvim_create_autocmd("BufLeave", {
+    pattern = "*",
+    command = "silent! update"
+})
+
 vim.opt.guicursor = ""
 
 vim.opt.nu = true

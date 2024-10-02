@@ -1,14 +1,15 @@
 local lsp_zero = require('lsp-zero')
 
-lsp_zero.on_attach(function(client, bufnr)
-  -- see :help lsp-zero-keybindings
-  -- to learn the available actions
-  lsp_zero.default_keymaps({buffer = bufnr})
+lsp_zero.on_attach(function(_, bufnr)
+    -- see :help lsp-zero-keybindings
+    -- to learn the available actions
+    lsp_zero.default_keymaps({ buffer = bufnr })
 end)
 
 
 local lsp_attach = function(client, bufnr)
-    local opts = {buffer = bufnr}
+    local opts = { buffer = bufnr }
+    client.server_capabilities.documentFormattingProvider = true
     vim.keymap.set("n", "gd", function() vim.lsp.buf.definition() end, opts)
     vim.keymap.set("n", "K", function() vim.lsp.buf.hover() end, opts)
     vim.keymap.set("n", "<leader>vws", function() vim.lsp.buf.workspace_symbol() end, opts)
@@ -22,11 +23,25 @@ local lsp_attach = function(client, bufnr)
 end
 
 lsp_zero.extend_lspconfig({
-  sign_text = true,
-  lsp_attach = lsp_attach,
-  capabilities = require('cmp_nvim_lsp').default_capabilities(),
+    sign_text = true,
+    lsp_attach = lsp_attach,
+    capabilities = require('cmp_nvim_lsp').default_capabilities(),
 })
 
+local server_config = require("lspconfig.configs")
+local util = require("lspconfig.util")
+server_config.kcl = {
+    default_config = {},
+}
+local lspconfig = require("lspconfig")
+lspconfig.on_init = function(client)
+    client.offset_encoding = "utf-8"
+end
+lspconfig.kcl.setup({
+    cmd = { "kcl-language-server" },
+    filetypes = { "kcl" },
+    root_dir = util.root_pattern(".git"),
+})
 local cmp = require('cmp')
 local cmp_lsp = require("cmp_nvim_lsp")
 local capabilities = vim.tbl_deep_extend(
@@ -35,13 +50,22 @@ local capabilities = vim.tbl_deep_extend(
     vim.lsp.protocol.make_client_capabilities(),
     cmp_lsp.default_capabilities())
 
-require("fidget").setup({})
+-- Ensure that dynamicRegistration is enabled! This allows the LS to take into account actions like the
+-- Create Unresolved File code action, resolving completions for unindexed code blocks, ...
+capabilities.workspace = {
+    didChangeWatchedFiles = {
+        dynamicRegistration = true,
+    },
+}
+
+require("fidget").setup()
 require("mason").setup()
 require("mason-lspconfig").setup({
     ensure_installed = {
         "lua_ls",
         "rust_analyzer",
         "gopls",
+        "omnisharp"
     },
     handlers = {
         function(server_name) -- default handler (optional)
@@ -49,7 +73,6 @@ require("mason-lspconfig").setup({
                 capabilities = capabilities
             }
         end,
-
         zls = function()
             local lspconfig = require("lspconfig")
             lspconfig.zls.setup({
@@ -64,9 +87,8 @@ require("mason-lspconfig").setup({
             })
             vim.g.zig_fmt_parse_errors = 0
             vim.g.zig_fmt_autosave = 0
-
         end,
-        ["lua_ls"] = function()
+        lua_ls = function()
             local lspconfig = require("lspconfig")
             lspconfig.lua_ls.setup {
                 capabilities = capabilities,
@@ -80,18 +102,103 @@ require("mason-lspconfig").setup({
                 }
             }
         end,
-        csharp_ls = function()
+        omnisharp = function()
             local lspconfig = require("lspconfig")
-            lspconfig.csharp_ls.setup {}
+            lspconfig.omnisharp.setup {}
+        end,
+        golangci_lint_ls = function()
+            local lspconfig = require("lspconfig")
+            lspconfig.golangci_lint_ls.setup({
+                capabilities = lsp_capabilities,
+                on_attach = lsp_attach,
+                filetypes = { "go" },
+            })
         end,
         gopls = function()
             local lspconfig = require("lspconfig")
-            lspconfig.gopls.setup {}
+            lspconfig.gopls.setup({
+                capabilities = lsp_capabilities,
+                on_attach = lsp_attach,
+                filetypes = { "go" },
+                settings = {
+                    buildFlags = { "-tags=integration,unit,db" },
+                    gopls = {
+                        analyses = {
+                            append = true,
+                            asmdecl = true,
+                            assign = true,
+                            atomic = true,
+                            unreachable = true,
+                            nilness = true,
+                            ST1003 = true,
+                            undeclaredname = true,
+                            fillreturns = true,
+                            nonewvars = true,
+                            fieldalignment = true,
+                            shadow = true,
+                            unusedvariable = true,
+                            unusedparams = true,
+                            useany = true,
+                            unusedwrite = true,
+                        },
+                        codelenses = {
+                            generate = true,   -- show the `go generate` lens.
+                            gc_details = true, -- Show a code lens toggling the display of gc's choices.
+                            test = true,
+                            tidy = true,
+                            vendor = true,
+                            regenerate_cgo = true,
+                            upgrade_dependency = true,
+                        },
+                        hints = {
+                            assignVariableTypes = false,
+                            compositeLiteralFields = false,
+                            compositeLiteralTypes = false,
+                            constantValues = true,
+                            functionTypeParameters = false,
+                            parameterNames = false,
+                            rangeVariableTypes = false,
+                        },
+                        usePlaceholders = false,
+                        completeUnimported = true,
+                        staticcheck = true,
+                        matcher = "Fuzzy",
+                        symbolMatcher = "FastFuzzy",
+                        semanticTokens = false,
+                        --	noSemanticString = true, -- disable semantic string tokens so we can use treesitter highlight injection
+                        vulncheck = "Imports",
+                    },
+                },
+            })
         end,
-        ---                yaml_ls = function()
-        ---                    local lspconfig = require("lspconfig")
-        ---                    lspconfig.yaml_ls.setup {}
-        ---                end,
+        yamlls = function()
+            local lspconfig = require("lspconfig")
+            lspconfig.yamlls.setup {
+                schemas = {
+                    kubernetes = "*.yaml",
+                    ["http://json.schemastore.org/github-workflow"] = ".github/workflows/*",
+                    ["http://json.schemastore.org/github-action"] = ".github/action.{yml,yaml}",
+                    ["http://json.schemastore.org/ansible-stable-2.9"] = "roles/tasks/*.{yml,yaml}",
+                    ["http://json.schemastore.org/prettierrc"] = ".prettierrc.{yml,yaml}",
+                    ["http://json.schemastore.org/kustomization"] = "kustomization.{yml,yaml}",
+                    ["http://json.schemastore.org/ansible-playbook"] = "*play*.{yml,yaml}",
+                    ["http://json.schemastore.org/chart"] = "Chart.{yml,yaml}",
+                    ["https://json.schemastore.org/dependabot-v2"] = ".github/dependabot.{yml,yaml}",
+                    ["https://json.schemastore.org/gitlab-ci"] = "*gitlab-ci*.{yml,yaml}",
+                    ["https://raw.githubusercontent.com/OAI/OpenAPI-Specification/main/schemas/v3.1/schema.json"] = "*api*.{yml,yaml}",
+                    ["https://raw.githubusercontent.com/compose-spec/compose-spec/master/schema/compose-spec.json"] = "*docker-compose*.{yml,yaml}",
+                    ["https://raw.githubusercontent.com/argoproj/argo-workflows/master/api/jsonschema/schema.json"] = "*flow*.{yml,yaml}",
+                },
+            }
+        end,
+        marksman = function()
+            local lspconfig = require("lspconfig")
+            lspconfig.marksman.setup {
+                capabilities = lsp_capabilities,
+                on_attach = lsp_attach,
+                filetypes = { "markdown" },
+            }
+        end,
     }
 })
 
@@ -110,11 +217,12 @@ cmp.setup({
         ["<C-Space>"] = cmp.mapping.complete(),
     }),
     sources = cmp.config.sources({
-        { name = 'nvim_lsp' },
+        {
+            name = 'nvim_lsp',
+        },
         { name = 'luasnip' }, -- For luasnip users.
-    }, {
-            { name = 'buffer' },
-        })
+        { name = 'buffer' },
+    })
 })
 
 vim.diagnostic.config({
